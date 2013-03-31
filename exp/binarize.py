@@ -15,7 +15,7 @@ if __name__ == '__main__':
     aa = Image.open(args.input)
     qq = array(aa, dtype=np.float)
 
-    ww = morph.grey_opening(qq, size=(7,7))
+    ww = morph.grey_erosion(qq, size=(3,3))
 
     ion()
     ax = subplot(1,2,1)
