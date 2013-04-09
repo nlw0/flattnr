@@ -30,38 +30,27 @@ def patch_autocorr(xx):
     return ac
 
 
+def estimate_texture_direction(patch):
+    period = patch.shape[0]
+    # ww = hamming(period)
+    # ww = scipy.signal.gaussian(period, period/6.0)
+    ww = scipy.signal.gaussian(period, period/6.0)
+    wpatch = patch * outer(ww, ww)
 
+    ac = patch_autocorr(wpatch)
 
-def calculate_texture_direction(ipatch):
-    period = ipatch.shape[0]
-    gau = scipy.signal.gaussian(period, period / 5.0)
-    Wg = outer(gau, gau)
+    QQ = zeros((3,3))
+    QQ[1:,1:] = ac[:2,:2]
+    QQ[0,0] = ac[-1,-1] 
+    QQ[0,1:] = ac[-1,:2]
+    QQ[1:,0] = ac[:2,-1]
 
+    XX = array([[1, 0, 1], [1, 0, 1], [1, 0, 1]]) - 2 / 3.
+    XY = array([[ 1, 0,-1], [ 0, 0, 0], [-1, 0, 1]])
+    YY = array([[1, 1, 1], [0, 0, 0], [1, 1, 1]]) - 2 / 3.
 
-    patch = ipatch * Wg
-
-    PP = fft2(patch)
-    #RR = fftshift(real(ifft2(PP * conj(PP))))
-    RR = real(ifft2(PP * conj(PP)))
-
-
-    hd = period/4 + 1
-    QQ = c_[RR[:hd,-hd+1:], RR[:hd,:hd]]
-    QQ = r_[c_[RR[-hd+1:,-hd+1:], RR[-hd+1:,:hd]], QQ]
-    QQ -= QQ.mean()
-
-    x = mgrid[-hd+1:hd]
-    X = repeat(x, hd*2-1,0).reshape(-1,2*hd-1).T
-    XX = X * X
-    XY = X * X.T
-    YY = XX.T
-
-    XX = XX - XX.mean()
-    XY = XY - XY.mean()
-    YY = YY - YY.mean()
-
-    A = zeros(((2 * hd - 1) ** 2, 3))
-    B = zeros((2 * hd - 1) ** 2)
+    A = zeros((9, 3))
+    B = zeros(9)
 
     A[:,0] = XX.ravel()
     A[:,1] = XY.ravel()
@@ -73,11 +62,11 @@ def calculate_texture_direction(ipatch):
     M = array([[a[0], a[1]/2],
                [a[1]/2, a[2]]])
 
-    u,s,v = svd(M)
+    U,S,V = svd(M)
 
-    q = v[1]
+    q = V[1]
 
-    return q
+    return q, wpatch.std()
 
 def find_first_peak(x):
     k = 0
@@ -154,79 +143,43 @@ if __name__ == '__main__':
     imshow(lpqq, cmap=cm.gray)
 
     figure()
-    imshow(hpqq, vmin=-40, vmax=40, cmap=my_cmap)
+    imshow(hpqq, vmin=-20, vmax=20, cmap=my_cmap)
+
+    figure(figsize=(7,10))
+    subplot(2,1,1)
+    title('Scaled book picture')
+    imshow(qq, cmap=cm.gray)
+    subplot(2,1,2, sharex=gca(), sharey=gca())
+    title('Estimated text line directions')
+    #imshow(-abs(hpqq), cmap=cm.bone)
+    
+    # figure(3)
+
 
     d = 10
-    cx, cy = 13,107
+    s = 5.0
+    
+    Lss = []
 
-    patch = hpqq[cy-d+1:cy+d, cx-d+1:cx+d]
+    for cx in mgrid[d:hpqq.shape[1]-d:5]:
+        for cy in mgrid[d:hpqq.shape[0]-d:5]:
+            #cx, cy = 13,107
+            patch = hpqq[cy-d+1:cy+d, cx-d+1:cx+d]
+            q, ss = estimate_texture_direction(patch)
+            Lss.append(ss)
 
-    period = patch.shape[0]
-    # ww = hamming(period)
-    # ww = scipy.signal.gaussian(period, period/6.0)
-    ww = scipy.signal.gaussian(period, period/6.0)
-    wpatch = patch * outer(ww, ww)
-
-    ac = patch_autocorr(wpatch)
-
-    QQ = zeros((3,3))
-    QQ[1:,1:] = ac[:2,:2]
-    QQ[0,0] = ac[-1,-1] 
-    QQ[0,1:] = ac[-1,:2]
-    QQ[1:,0] = ac[:2,-1]
-
-    XX = array([[1, 0, 1], [1, 0, 1], [1, 0, 1]]) - 2 / 3.
-    XY = array([[ 1, 0,-1], [ 0, 0, 0], [-1, 0, 1]])
-    YY = array([[1, 1, 1], [0, 0, 0], [1, 1, 1]]) - 2 / 3.
-
-    A = zeros((9, 3))
-    B = zeros(9)
-
-    A[:,0] = XX.ravel()
-    A[:,1] = XY.ravel()
-    A[:,2] = YY.ravel()
-    B = QQ.ravel()
-
-    a = numpy.linalg.lstsq(A, B)[0]
-
-    M = array([[a[0], a[1]/2],
-               [a[1]/2, a[2]]])
-
-    U,S,V = svd(M)
-
-    q = V[1]
-
-    figure()
-
-    subplot(2,2,1)
-    imshow(patch, vmin=-30, vmax=30, cmap=my_cmap,
-           extent=(-period*.5, period*.5, period*.5, -period*.5))
-    s = d
-    plot(s*array([-q[0], q[0]]),
-         s*array([-q[1], q[1]]), 'r-')
-
-    subplot(2,2,2)
-    imshow(wpatch, vmin=-30, vmax=30, cmap=my_cmap)
-
-    subplot(2,2,3)
-    imshow(fftshift(ac), cmap=my_cmap, 
-           vmin=ac.min(), vmax=ac.max(),
-           extent=(-period*.5, period*.5, period*.5, -period*.5))
-
-    s = 3.0
-    plot(s*array([-q[0], q[0]]),
-         s*array([-q[1], q[1]]), 'r-')
-
-    subplot(2,2,4)
-    imshow(ac[0,0] + quadratic_surface(period, a),
-           vmin=ac.min(), vmax=ac.max(),
-           cmap=my_cmap, extent=(-period*.5, period*.5, period*.5, -period*.5))
-
-    figure(1)
-    s = 3.0
-    plot(cx+s*array([-q[0], q[0]]),
-         cy+s*array([-q[1], q[1]]), 'r-')
+            if ss < 1.5:
+                continue
+            plot(cx+s*array([-q[0], q[0]]),
+                 cy+s*array([-q[1], q[1]]), 'r-')
 
 
+    xlim(0,qq.shape[1])
+    ylim(qq.shape[0],0)
 
+    savefig('out.png')
+
+
+    # figure()
+    # plot(sort(Lss))
 #    code.interact(local=locals())
