@@ -12,28 +12,30 @@ import numpy.linalg
 
 import code
 
+from scipy.linalg import toeplitz
 
-def ridge_detector(img):
-    zzaa = array([1,1,-1,-1,1,1,-1,-1.0])
-    zzbb = array([-1,1,1,-1,-1,1,1,-1.0])
-    zza = array([1,1,1,1,-1,-1,-1,-1.0])
-    zzb = array([-1,-1,1,1,1,1,-1,-1.0])
-    # zza = array([-1, 0, 1, 0,-1.0])
-    # zzb = array([ 0,-1, 0, 1, 0.0])
-    a = array(
-        [convolve(zza, col)
-         for col in img.T]).T
-    b = array(
-        [convolve(zzb, col)
-         for col in img.T]).T
-    aa = array(
-        [convolve(zzaa, col)
-         for col in img.T]).T
-    bb = array(
-        [convolve(zzbb, col)
-         for col in img.T]).T
 
-    return a, b, aa, bb
+
+
+def osc_detector(img):
+    return array(
+        [osc_detector_single_line(col)
+         for col in img.T]
+        ).T
+
+def osc_detector_single_line(line):
+    N = 11
+    ss = toeplitz(line[N-1:], line[N-1::-1])
+    M = array([
+            [ 0,-1, 0, 1, 0,-1, 0, 1, 0,-1, 0],
+            [-1, 0, 1, 0,-1, 0, 1, 0,-1, 0, 1],
+            ])
+    lanczos = sinc(mgrid[-5:6]/6.0)
+    qq = dot(dot(ss, diag(lanczos)), M.T)
+    ww = dot(ss * ss, lanczos)
+    return r_[zeros(N/2), 
+              ((qq[:,0]**2 + qq[:,1]**2) / (ww + 100)) > 1.0,
+              zeros(N/2)]
 
 def quadratic_surface(N, a):
     x = mgrid[:N] - ((N-1) * .5)
@@ -151,6 +153,42 @@ def plot_samples(ax, signal):
     ax.plot(signal, '.')
 
 
+def get_page_masks(hpqq):
+
+    hpqq_smoothed = copy(hpqq)
+    hpqq_smoothed[:,1:] += hpqq[:,:-1]
+    hpqq_smoothed[:,:-1] += hpqq[:,1:]
+    hpqq_smoothed = hpqq_smoothed / 3
+
+    rd = osc_detector(hpqq_smoothed)
+    # rd = morph.binary_closing(rd, iterations=3)
+    rd = morph.binary_dilation(rd, iterations=3)
+    rd = morph.binary_erosion(rd, iterations=5)
+    label_im, nb_labels = scipy.ndimage.label(rd)
+
+    sizes = scipy.ndimage.sum(rd, label_im, range(nb_labels + 1))
+
+    mask_size = sizes < (sort(sizes)[-2])
+    mask_l = morph.binary_fill_holes(label_im == nonzero(sizes == sort(sizes)[-1])[0][0])
+    mask_r = morph.binary_fill_holes(label_im == nonzero(sizes == sort(sizes)[-2])[0][0])
+
+    yy, xx = mgrid[:hpqq.shape[0],:hpqq.shape[1]]
+    
+    centroid_l = ((mask_l * xx).sum() / mask_l.sum(),
+                  (mask_l * yy).sum() / mask_l.sum())
+
+    centroid_r = ((mask_r * xx).sum() / mask_r.sum(),
+                  (mask_r * yy).sum() / mask_r.sum())
+    
+    ## Make sure the "left" actually is the one we assumed.
+    if centroid_l[0] > centroid_r[0]:
+        print "*** YAY"
+        mask_l, mask_r = mask_r, mask_l
+        centroid_l, centroid_r = centroid_r, centroid_l
+
+    return mask_l, centroid_l, mask_r, centroid_r
+
+
 if __name__ == '__main__':
 
     #generate teal-and-orange colormap with 1024 interpolated values
@@ -176,10 +214,23 @@ if __name__ == '__main__':
 
     qq, lpqq, hpqq = scale_and_filter_image(image, sf)
 
+    mask_l, centroid_l, mask_r, centroid_r = get_page_masks(hpqq)
+
     ion()
 
 
     cc = args.column
+
+    figure(figsize=(6,9))
+    suptitle('Text area detection')
+    subplot(211)
+    imshow(hpqq)
+    subplot(212)
+    imshow(1*mask_l - mask_r)
+
+    
+
+
     
 
     ##
@@ -237,16 +288,29 @@ if __name__ == '__main__':
 
     oo = array([1.0, 1.0])
     for p, v, edgel_intensity in edgels:
-        if edgel_intensity > 0:#1.5:
+        # if edgel_intensity > 0:#1.5:
+        if mask_l[p[1], p[0]]:
             xx, yy = c_[p - s*v, p + s*v]
             plot(xx, yy, 'r-')
 
-    ang = zeros((100,100,2))
+    ang_l = zeros((60,100,2))
+    ang_r = zeros((60,100,2))
     for p, v, edgel_intensity in edgels:
         if edgel_intensity <= 1.5 or v[0] < 0.9:
             continue
         x, y = p / (d / 3)
-        ang[y, x, :] = v
+        if mask_l[p[1], p[0]]:
+            ang_l[y, x, :] = v
+        elif mask_r[p[1], p[0]]:
+            ang_r[y, x, :] = v
 
-    figure()
-    imshow(ang[:,:,1], vmin=-0.4, vmax=0.4)
+    figure(figsize=(10,6))
+    ax = axes([0.02,0.02,0.2,0.95])
+    imshow(ang_l[:,:,1], vmin=-0.4, vmax=0.4, extent=[0, qq.shape[1], qq.shape[0], 0])
+    axis('equal')
+    axes([0.78,0.02,0.2,0.95], sharey=ax)
+    imshow(ang_r[:,:,1], vmin=-0.4, vmax=0.4, extent=[0, qq.shape[1], qq.shape[0], 0])
+    axis('equal')
+    axes([0.25,0.02,0.51,0.95], sharey=ax)
+    imshow(qq, cmap=cm.gray)
+    axis('equal')
