@@ -9,6 +9,7 @@ import scipy.ndimage.morphology as morph
 import scipy.signal
 
 import numpy.linalg
+import numpy
 
 import code
 
@@ -16,6 +17,45 @@ from scipy.linalg import toeplitz
 
 
 
+
+def get_page_masks(hpqq):
+
+    # hpqq_smoothed = copy(hpqq)
+    # hpqq_smoothed[:,1:] += hpqq[:,:-1]
+    # hpqq_smoothed[:,:-1] += hpqq[:,1:]
+    # hpqq_smoothed = hpqq_smoothed / 3
+
+    # rd = osc_detector(hpqq_smoothed)
+
+    rd = osc_detector(hpqq)
+
+    # rd = morph.binary_closing(rd, iterations=3)
+    rd = morph.binary_dilation(rd, iterations=3)
+    rd = morph.binary_erosion(rd, iterations=5)
+
+    label_im, nb_labels = scipy.ndimage.label(rd)
+
+    sizes = scipy.ndimage.sum(rd, label_im, range(nb_labels + 1))
+
+    mask_size = sizes < (sort(sizes)[-2])
+    mask_l = morph.binary_fill_holes(label_im == nonzero(sizes == sort(sizes)[-1])[0][0])
+    mask_r = morph.binary_fill_holes(label_im == nonzero(sizes == sort(sizes)[-2])[0][0])
+
+    yy, xx = mgrid[:hpqq.shape[0],:hpqq.shape[1]]
+    
+    centroid_l = ((mask_l * xx).sum() / mask_l.sum(),
+                  (mask_l * yy).sum() / mask_l.sum())
+
+    centroid_r = ((mask_r * xx).sum() / mask_r.sum(),
+                  (mask_r * yy).sum() / mask_r.sum())
+    
+    ## Make sure the "left" actually is the one we assumed.
+    if centroid_l[0] > centroid_r[0]:
+        print "*** YAY"
+        mask_l, mask_r = mask_r, mask_l
+        centroid_l, centroid_r = centroid_r, centroid_l
+
+    return mask_l, centroid_l, mask_r, centroid_r
 
 def osc_detector(img):
     return array(
@@ -25,17 +65,29 @@ def osc_detector(img):
 
 def osc_detector_single_line(line):
     N = 11
+
+    ## Lanczos window. Maybe it should be (2 / N), minor difference.
+    lanczos = sinc(mgrid[-(N / 2):1 + N / 2] * (2.0 / N))
+
     ss = toeplitz(line[N-1:], line[N-1::-1])
+    ss = dot(ss, diag(lanczos))
+
     M = array([
-            [ 0,-1, 0, 1, 0,-1, 0, 1, 0,-1, 0],
-            [-1, 0, 1, 0,-1, 0, 1, 0,-1, 0, 1],
+            # [ 0,-1, 0, 1, 0,-1, 0, 1, 0,-1, 0],
+            # [-1, 0, 1, 0,-1, 0, 1, 0,-1, 0, 1],
+            [-1,-1, 1, 1,-1,-1, 1, 1,-1,-1, 1],
+            [-1, 1, 1,-1,-1, 1, 1,-1,-1, 1, 1],
             ])
-    lanczos = sinc(mgrid[-5:6]/6.0)
-    qq = dot(dot(ss, diag(lanczos)), M.T)
-    ww = dot(ss * ss, lanczos)
-    return r_[zeros(N/2), 
-              ((qq[:,0]**2 + qq[:,1]**2) / (ww + 100)) > 1.0,
-              zeros(N/2)]
+
+    M = dot(diag(1 / sqrt(numpy.sum(M**2, 1))), M)
+
+    qq = dot(ss, M.T)
+    qq = sqrt(qq[:,0] ** 2 + qq[:,1] ** 2)
+    ww = sqrt((ss ** 2).sum(1))
+    sel = (qq > 5.0) * (qq/ww > 0.55)
+
+    return r_[zeros(N/2), sel, zeros(N/2)]
+    # return qq, ww
 
 def quadratic_surface(N, a):
     x = mgrid[:N] - ((N-1) * .5)
@@ -54,7 +106,7 @@ def extract_edgels(hpqq, d):
         for cy in mgrid[d-1:hpqq.shape[0] - d:step]]
 
 def fetch_patch(hpqq, cx, cy, d):
-    return hpqq[cy-d+1:cy+d, cx-d+1:cx+d]
+    return hpqq[cy - d + 1 : cy + d, cx - d + 1 : cx + d]
 
 def estimate_texture_direction(patch):
     period = patch.shape[0]
@@ -111,7 +163,6 @@ def estimate_general_line_spacing(image):
     ac = calculate_image_vertical_autocorrelation(image)
     return find_first_peak(ac)
 
-
 def calculate_image_vertical_autocorrelation(image):
     _max_exp_line_count = 10
     # sigma = min(image.shape) / (_max_exp_line_count * 6.0)
@@ -152,43 +203,7 @@ def plot_samples(ax, signal):
     ax.plot(xx.T, yy.T, 'b-')
     ax.plot(signal, '.')
 
-
-def get_page_masks(hpqq):
-
-    hpqq_smoothed = copy(hpqq)
-    hpqq_smoothed[:,1:] += hpqq[:,:-1]
-    hpqq_smoothed[:,:-1] += hpqq[:,1:]
-    hpqq_smoothed = hpqq_smoothed / 3
-
-    rd = osc_detector(hpqq_smoothed)
-    # rd = morph.binary_closing(rd, iterations=3)
-    rd = morph.binary_dilation(rd, iterations=3)
-    rd = morph.binary_erosion(rd, iterations=5)
-    label_im, nb_labels = scipy.ndimage.label(rd)
-
-    sizes = scipy.ndimage.sum(rd, label_im, range(nb_labels + 1))
-
-    mask_size = sizes < (sort(sizes)[-2])
-    mask_l = morph.binary_fill_holes(label_im == nonzero(sizes == sort(sizes)[-1])[0][0])
-    mask_r = morph.binary_fill_holes(label_im == nonzero(sizes == sort(sizes)[-2])[0][0])
-
-    yy, xx = mgrid[:hpqq.shape[0],:hpqq.shape[1]]
-    
-    centroid_l = ((mask_l * xx).sum() / mask_l.sum(),
-                  (mask_l * yy).sum() / mask_l.sum())
-
-    centroid_r = ((mask_r * xx).sum() / mask_r.sum(),
-                  (mask_r * yy).sum() / mask_r.sum())
-    
-    ## Make sure the "left" actually is the one we assumed.
-    if centroid_l[0] > centroid_r[0]:
-        print "*** YAY"
-        mask_l, mask_r = mask_r, mask_l
-        centroid_l, centroid_r = centroid_r, centroid_l
-
-    return mask_l, centroid_l, mask_r, centroid_r
-
-
+##
 if __name__ == '__main__':
 
     #generate teal-and-orange colormap with 1024 interpolated values
@@ -216,16 +231,15 @@ if __name__ == '__main__':
 
     mask_l, centroid_l, mask_r, centroid_r = get_page_masks(hpqq)
 
+
     ion()
-
-
     cc = args.column
 
     figure(figsize=(6,9))
     suptitle('Text area detection')
-    subplot(211)
+    ax = subplot(211)
     imshow(hpqq)
-    subplot(212)
+    subplot(212, sharex=ax, sharey=ax)
     imshow(1*mask_l - mask_r)
 
     
@@ -304,7 +318,7 @@ if __name__ == '__main__':
         elif mask_r[p[1], p[0]]:
             ang_r[y, x, :] = v
 
-    figure(figsize=(10,6))
+    figure(figsize=(12,6))
     ax = axes([0.02,0.02,0.2,0.95])
     imshow(ang_l[:,:,1], vmin=-0.4, vmax=0.4, extent=[0, qq.shape[1], qq.shape[0], 0])
     axis('equal')
@@ -314,3 +328,8 @@ if __name__ == '__main__':
     axes([0.25,0.02,0.51,0.95], sharey=ax)
     imshow(qq, cmap=cm.gray)
     axis('equal')
+
+
+
+
+    
