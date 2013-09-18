@@ -3,6 +3,17 @@ from numpy import array, dot, zeros, reshape
 from numpy.linalg import norm
 
 from scipy.spatial import KDTree
+from scipy.optimize import leastsq
+
+get_coefs = array([
+        [ 6.0,-12.0, 6.0, 6.0,-12.0, 6.0, 6.0,-12.0, 6.0],
+        [ 6.0, 6.0, 6.0,-12.0,-12.0,-12.0, 6.0, 6.0, 6.0],
+        [ 9.0,-0.0,-9.0, 0.0,-0.0, 0.0,-9.0,-0.0, 9.0],
+        [-6.0, 0.0, 6.0,-6.0, 0.0, 6.0,-6.0, 0.0, 6.0],
+        [-6.0,-6.0,-6.0,-0.0, 0.0,-0.0, 6.0, 6.0, 6.0],
+        [-4.0, 8.0,-4.0, 8.0,20.0, 8.0,-4.0, 8.0,-4.0]
+        ]) / 36.0
+
 
 class CameraModel(object):
     def __init__(self, image_shape, cp, fd):
@@ -16,11 +27,11 @@ class CameraModel(object):
         
 
 class Mesh(object):
-    def __init__(self, Nlins, Ncols):
-        self.Nlins = Nlins
+    def __init__(self, Nrows, Ncols):
+        self.Nrows = Nrows
         self.Ncols = Ncols
-        self.points = zeros((self.Nlins * self.Ncols, 3))
-        self.mesh = self.points.reshape(self.Nlins, self.Ncols, 3)
+        self.points = zeros((self.Nrows * self.Ncols, 3))
+        self.mesh = self.points.reshape(self.Nrows, self.Ncols, 3)
 
     def plot_wireframe(self):
         import pylab
@@ -56,8 +67,7 @@ class Mesh(object):
 
         return ax
 
-    def render_image(self, camera):
-
+    def label_pixels(self, camera):
         img_lab = zeros(camera.image_shape)
 
         pp = camera.project(self.points)
@@ -67,11 +77,40 @@ class Mesh(object):
             for ic in xrange(int(camera.image_shape[1])):
                 pixel = array([ic, il])
                 img_lab[il, ic] = tree.query(pixel)[1]
-
-        
-
         return img_lab
 
-    def line_crosses_triangle(self, line, triangle):
-        pa, pb, pc = [self.points[point_index] for point_index in triangle]
-        print pa,pb,pc
+    def uv_to_xyz(self, uv):
+        mesh_row = round(uv[1])
+        mesh_col = round(uv[0])
+
+        if mesh_row < 1:
+            mesh_row = 1
+        if mesh_col < 1:
+            mesh_col = 1
+        if mesh_row > self.Nrows - 2:
+            mesh_row = self.Nrows - 2
+        if mesh_col > self.Ncols - 2:
+            mesh_col = self.Ncols - 2
+
+        lx, ly = uv - (mesh_col, mesh_row)
+
+        out = zeros(3)
+        for c in range(3):
+            local_mesh = self.mesh[mesh_row - 1 : mesh_row + 2,
+                                   mesh_col - 1 : mesh_col + 2, c]
+
+            coefs = dot(get_coefs, local_mesh.ravel())
+        
+            out[c] = dot(coefs, [lx * lx, ly * ly, lx * ly, lx, ly, 1])
+        return out
+
+    def uv_to_pq(self, cm, uv):
+        return cm.project(self.uv_to_xyz(uv))
+
+    def pq_to_uv(self, cm, pq):
+        def err(xx, cm):
+            vv = self.uv_to_pq(cm, xx) - pq
+            return vv * vv
+
+        return leastsq(err, array([3.0, 4.0]), args=(cm,))[0]
+
