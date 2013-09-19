@@ -1,9 +1,14 @@
 
-from numpy import array, dot, zeros, reshape
+from numpy import array, dot, zeros, ones, reshape, c_
 from numpy.linalg import norm
 
 from scipy.spatial import KDTree
 from scipy.optimize import leastsq
+from scipy.ndimage.filters import convolve
+
+ando3 = array([[0.112737, 0, -0.112737],
+               [0.274526, 0, -0.274526],
+               [0.112737, 0, -0.112737]])
 
 get_coefs = array([
         [ 6.0,-12.0, 6.0, 6.0,-12.0, 6.0, 6.0,-12.0, 6.0],
@@ -24,7 +29,43 @@ class CameraModel(object):
     def project(self, p):
         return self.cp + self.fd * (p[:, [0, 1]] / p[:,[2, 2]])
 
+    def ray(self, pq):
+        return c_[(pq - self.cp) / self.fd, ones(len(pq))]
+
+    def jacobian_from_pq(self, pq):
+        X, Y, Z = c_[(pq - self.cp) / self.fd, ones(len(pq))].T
+
+        J = zeros([len(pq), 2, 3])
+
+        J[:,0,0] = Z
+        J[:,0,1] = 0
+        J[:,0,2] = -X
+        J[:,1,0] = 0
+        J[:,1,1] = Z
+        J[:,1,2] = -Y
+
+        return J
+
         
+        
+
+    def draw_camera(self, ax):
+        pq = array([
+                [0,0],
+                [self.image_shape[1], 0],
+                [self.image_shape[1], self.image_shape[0]],
+                [0, self.image_shape[0]],
+                ])
+        cam_xyz = self.ray(pq) * 0.5
+        for ii in range(4):
+            ax.plot([cam_xyz[ii, 0], cam_xyz[(ii + 1) % 4, 0]],
+                    [cam_xyz[ii, 2], cam_xyz[(ii + 1) % 4, 2]],
+                    [cam_xyz[ii, 1], cam_xyz[(ii + 1) % 4, 1]],
+                    'r-')
+            ax.plot([0, cam_xyz[ii, 0]],
+                    [0, cam_xyz[ii, 2]],
+                    [0, cam_xyz[ii, 1]],
+                    'r-')
 
 class Mesh(object):
     def __init__(self, Nrows, Ncols):
@@ -114,3 +155,32 @@ class Mesh(object):
 
         return leastsq(err, array([3.0, 4.0]), args=(cm,))[0]
 
+    def uv_to_xyz_dev(self, uv):
+        mesh_row = round(uv[1])
+        mesh_col = round(uv[0])
+
+        if mesh_row < 1:
+            mesh_row = 1
+        if mesh_col < 1:
+            mesh_col = 1
+        if mesh_row > self.Nrows - 2:
+            mesh_row = self.Nrows - 2
+        if mesh_col > self.Ncols - 2:
+            mesh_col = self.Ncols - 2
+
+        lx, ly = uv - (mesh_col, mesh_row)
+
+        out = zeros(3)
+        for c in range(3):
+            local_mesh = self.mesh_dev[mesh_row - 1 : mesh_row + 2,
+                                       mesh_col - 1 : mesh_col + 2, c]
+            coefs = dot(get_coefs, local_mesh.ravel())
+            out[c] = dot(coefs, [lx * lx, ly * ly, lx * ly, lx, ly, 1])
+        return out
+
+    def calculate_derivative(self):
+        self.mesh_dev = zeros([self.Nrows, self.Ncols, 3])
+
+        for cc in range(3):
+            self.mesh_dev[:,:,cc] = convolve(self.mesh[:,:,cc], ando3, mode='nearest')
+        
