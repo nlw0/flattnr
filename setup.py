@@ -8,6 +8,7 @@ setup(
     entry_points={
         'console_scripts': [
             'flattnr_sim_cyl = flattnr.tools.flattnr_simulate_cylinder:main',
+            'flattnr_extract = flattnr.tools.flattnr_extract_edgels:main',
         ]
     },
 

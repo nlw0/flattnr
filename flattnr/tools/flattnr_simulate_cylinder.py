@@ -84,8 +84,6 @@ def main():
             xyz = array([mesh.uv_to_xyz(x) for x in uv])
             pq = array([mesh.uv_to_pq(cm, x) for x in uv])
 
-
-
         mesh.calculate_derivative()
 
     if args.command == 'reverse':
@@ -130,7 +128,7 @@ def main():
         pylab.plot(pq[:,0], pq[:,1], 'k.')
 
         J = cm.jacobian_from_pq(pq)
-        
+
         for iuv, ixyz, ipq, iJ in zip(uv, xyz, pq, J):
             dd = dot(iJ, mesh.uv_to_xyz_dev(iuv))
             dd = dd / norm(dd)
