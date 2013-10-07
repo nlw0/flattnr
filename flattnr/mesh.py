@@ -33,21 +33,13 @@ class CameraModel(object):
         return c_[(pq - self.cp) / self.fd, ones(len(pq))]
 
     def jacobian_from_pq(self, pq):
-        X, Y, Z = c_[(pq - self.cp) / self.fd, ones(len(pq))].T
+        '''Projection Jacobian from a simple pinhole model.'''
+        X, Y = (pq - self.cp) / self.fd
+        Z = 1.0
 
-        J = zeros([len(pq), 2, 3])
-
-        J[:,0,0] = Z
-        J[:,0,1] = 0
-        J[:,0,2] = -X
-        J[:,1,0] = 0
-        J[:,1,1] = Z
-        J[:,1,2] = -Y
-
+        J = array([[Z, 0, -X],
+                   [0, Z, -Y]])
         return J
-
-        
-        
 
     def draw_camera(self, ax):
         pq = array([
@@ -180,7 +172,19 @@ class Mesh(object):
 
     def calculate_derivative(self):
         self.mesh_dev = zeros([self.Nrows, self.Ncols, 3])
+        self.mesh_devy = zeros([self.Nrows, self.Ncols, 3])
 
         for cc in range(3):
             self.mesh_dev[:,:,cc] = convolve(self.mesh[:,:,cc], ando3, mode='nearest')
+            self.mesh_devy[:,:,cc] = convolve(self.mesh[:,:,cc], ando3.T, mode='nearest')
+
+    def calculate_stress(self):
         
+        stress = 0.0
+        for u in range(1,self.Ncols - 1):
+            for v in range(1,self.Nrows - 1):
+            
+                stress += (norm(self.mesh_dev[v, u]) - 0.2)**2
+                stress += (norm(self.mesh_devy[v, u]) - 0.2)**2
+
+        return stress
