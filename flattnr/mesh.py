@@ -1,5 +1,7 @@
 
-from numpy import array, dot, zeros, ones, reshape, c_
+from flattnr.quaternion import Quat
+
+from numpy import array, dot, zeros, ones, reshape, c_, mgrid, pi, sin, cos
 from numpy.linalg import norm
 
 from scipy.spatial import KDTree
@@ -18,7 +20,6 @@ get_coefs = array([
         [-6.0,-6.0,-6.0,-0.0, 0.0,-0.0, 6.0, 6.0, 6.0],
         [-4.0, 8.0,-4.0, 8.0,20.0, 8.0,-4.0, 8.0,-4.0]
         ]) / 36.0
-
 
 class CameraModel(object):
     def __init__(self, image_shape, cp, fd):
@@ -60,13 +61,38 @@ class CameraModel(object):
                     'r-')
 
 class Mesh(object):
-    def __init__(self, Nrows, Ncols):
+    def __init__(
+        self,
+        Nrows,
+        Ncols,
+        rotation=Quat(1.0, 0, 0, 0),
+        translation=zeros(3),
+        curvature=0.0,
+        scale=0.2
+    ):
         self.Nrows = Nrows
         self.Ncols = Ncols
         self.points = zeros((self.Nrows * self.Ncols, 3))
         self.mesh = self.points.reshape(self.Nrows, self.Ncols, 3)
 
+        if curvature != 0.0:
+            tt = (mgrid[0.0 : Ncols] - Ncols / 2) / (Ncols-1) * (pi * 2 * curvature)
+            circ = c_[sin(tt), 1 - cos(tt)] * (Ncols - 1) / (pi * 2 * curvature)
+        else:
+            circ = c_[mgrid[0.0 : Ncols] - Ncols / 2,
+                      zeros(Ncols)]
+
+        for ii in range(self.Nrows):
+            self.mesh[ii, :, 0] = circ[:,0] * scale
+            self.mesh[ii, :, 2] = circ[:,1] * scale
+            self.mesh[ii, :, 1] = (ii - self.Nrows / 2) * scale
+
+        M = rotation.normalize().rot()
+        self.points[:, :] = dot(self.points, M.T)
+        self.points += translation
+
     def plot_wireframe(self):
+        '''Plot mesh on 3D space.'''
         import pylab
         from mpl_toolkits.mplot3d import Axes3D
 
@@ -74,13 +100,6 @@ class Mesh(object):
         fig = pylab.figure()
         ax = fig.add_subplot(111, projection='3d')
         ax.set_aspect('equal')
-
-        # u, v = np.mgrid[0:2*np.pi:20j, 0:np.pi:10j]
-        # x=2*np.cos(u)*np.sin(v)
-        # y=np.sin(u)*np.sin(v)
-        # z=np.cos(v)
-        # ax.plot_wireframe(x, y, z, color="r")
-        # ax.set_aspect('equal')
 
         ax.plot_wireframe(self.mesh[:,:,0], 
                           self.mesh[:,:,2], 
@@ -99,6 +118,17 @@ class Mesh(object):
         ax.set_zlabel('Y')
 
         return ax
+
+    def plot_2d_mesh(self, ax, cm, color='b', alpha=1.0, do_vertices=True):
+        '''Plot the mesh projected on the image space, using the camera model cm.'''
+        mesh_image = cm.project(self.points).reshape(self.Nrows, self.Ncols, -1)
+        for pp in mesh_image:
+            ax.plot(pp[:,0], pp[:,1], '-', color=color, alpha=alpha)
+        for pp in [mesh_image[:,k,:] for k in xrange(mesh_image.shape[1])]:
+            ax.plot(pp[:,0], pp[:,1], '-', color=color, alpha=alpha)
+        if do_vertices:
+            pp = reshape(mesh_image, (-1,2))
+            ax.plot(pp[:,0], pp[:,1], 'o', color=color)
 
     def label_pixels(self, camera):
         img_lab = zeros(camera.image_shape)
@@ -133,12 +163,32 @@ class Mesh(object):
                                    mesh_col - 1 : mesh_col + 2, c]
 
             coefs = dot(get_coefs, local_mesh.ravel())
-        
+
             out[c] = dot(coefs, [lx * lx, ly * ly, lx * ly, lx, ly, 1])
         return out
 
-    def uv_to_pq(self, cm, uv):
-        return cm.project(self.uv_to_xyz(uv))
+    def calculate_derivative(self):
+        self.mesh_dev = zeros([self.Nrows, self.Ncols, 3])
+        self.mesh_devy = zeros([self.Nrows, self.Ncols, 3])
+
+        for cc in range(3):
+            self.mesh_dev[:,:,cc] = convolve(self.mesh[:,:,cc], ando3, mode='nearest')
+            self.mesh_devy[:,:,cc] = convolve(self.mesh[:,:,cc], ando3.T, mode='nearest')
+
+    def calculate_stress(self):
+        stress = 0.0
+        for u in range(1,self.Ncols - 1):
+            for v in range(1,self.Nrows - 1):
+                stress += (norm(self.mesh_dev[v, u]) - 0.2)**2
+                stress += (norm(self.mesh_devy[v, u]) - 0.2)**2
+
+        return stress
+
+    def stress_terms(self):
+        for u in range(1,self.Ncols - 1):
+            for v in range(1,self.Nrows - 1):
+                yield norm(self.mesh_dev[v, u])
+                yield norm(self.mesh_devy[v, u])
 
     def pq_to_uv(self, cm, pq):
         def err(xx, cm):
@@ -146,6 +196,9 @@ class Mesh(object):
             return vv * vv
 
         return leastsq(err, array([3.0, 4.0]), args=(cm,))[0]
+
+    def uv_to_pq(self, cm, uv):
+        return cm.project(self.uv_to_xyz(uv))
 
     def uv_to_xyz_dev(self, uv):
         mesh_row = round(uv[1])
@@ -169,22 +222,3 @@ class Mesh(object):
             coefs = dot(get_coefs, local_mesh.ravel())
             out[c] = dot(coefs, [lx * lx, ly * ly, lx * ly, lx, ly, 1])
         return out
-
-    def calculate_derivative(self):
-        self.mesh_dev = zeros([self.Nrows, self.Ncols, 3])
-        self.mesh_devy = zeros([self.Nrows, self.Ncols, 3])
-
-        for cc in range(3):
-            self.mesh_dev[:,:,cc] = convolve(self.mesh[:,:,cc], ando3, mode='nearest')
-            self.mesh_devy[:,:,cc] = convolve(self.mesh[:,:,cc], ando3.T, mode='nearest')
-
-    def calculate_stress(self):
-        
-        stress = 0.0
-        for u in range(1,self.Ncols - 1):
-            for v in range(1,self.Nrows - 1):
-            
-                stress += (norm(self.mesh_dev[v, u]) - 0.2)**2
-                stress += (norm(self.mesh_devy[v, u]) - 0.2)**2
-
-        return stress
