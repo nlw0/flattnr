@@ -12,6 +12,8 @@ from numpy.linalg import det, norm
 
 import pylab
 
+from scipy.optimize import leastsq
+
 def test_label():
     pass
 
@@ -76,13 +78,22 @@ def main():
 
     x = nesh.points.ravel()
 
-    error = target_function(x, Nrows, Ncols, ds_obs, cm, data)
+    error = target_function_value(x, Nrows, Ncols, ds_obs, cm, data)
 
     print "***"
     print error
+    print "***"
 
+    print list(target_function(x, Nrows, Ncols, ds_obs, cm, data))
+    
+    # import ipdb; ipdb.set_trace();
 
-
+    qq = leastsq(target_function_list, x, args=(Nrows, Ncols, ds_obs, cm, data))[0]
+    
+    
+    mesh_est = Mesh(Nrows, Ncols)
+    mesh_est.points[:] = qq.reshape(*mesh_est.points.shape)
+    mesh_est.calculate_derivative()
 
     pylab.ion()
 
@@ -92,6 +103,7 @@ def main():
 
     mesh_ori.plot_2d_mesh(ax, cm, color='b', alpha=0.4, do_vertices=False)
     nesh.plot_2d_mesh(ax, cm, color='r', alpha=0.4, do_vertices=False)
+    mesh_est.plot_2d_mesh(ax, cm, color='b', alpha=0.4, do_vertices=False)
 
     ds_est = fromiter((x for p in get_edgel_directions(cm, nesh, data)
                        for x in p), dtype=float, count=(Npoints * 2))
@@ -110,6 +122,12 @@ def main():
 
     import ipdb; ipdb.set_trace();
 
+def target_function_value(x, Nrows, Ncols, ds_obs, cm, edgel_locations):
+    return sum(err*err for err in target_function(x, Nrows, Ncols, ds_obs, cm, edgel_locations))
+
+def target_function_list(x, Nrows, Ncols, ds_obs, cm, edgel_locations):
+    return [f for f in target_function(x, Nrows, Ncols, ds_obs, cm, edgel_locations)]
+
 def target_function(x, Nrows, Ncols, ds_obs, cm, edgel_locations):
     ## Create a new mesh model with "incorrect" parameters.
     mesh = Mesh(Nrows, Ncols)
@@ -118,14 +136,10 @@ def target_function(x, Nrows, Ncols, ds_obs, cm, edgel_locations):
 
     error = 0.0
     for d_est, d_obs in zip(get_edgel_directions(cm, mesh, edgel_locations), ds_obs):
-        ierr = d_est[0] * d_obs[1] - d_est[1] * d_obs[0]
-        error += ierr * ierr
+        yield d_est[0] * d_obs[1] - d_est[1] * d_obs[0]
 
     for st in mesh.stress_terms():
-        ierr = st - 0.2
-        error += ierr * ierr
-
-    return error
+        yield st - 0.2
 
 def get_edgel_directions(cm, mesh, edgel_locations):
     for pp in edgel_locations:
