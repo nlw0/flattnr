@@ -46,7 +46,8 @@ def main():
     Nrows, Ncols = 9, 7
     Q_ori = Quat(1.0, 0.08, -0.1, -0.1)
     T_ori = array([-0.2, 0.0, 1.9])    
-    mesh_ori = Mesh(9, 7, Q_ori, T_ori, 0.25)
+    curvature_ori = 0.25
+    mesh_ori = Mesh(Nrows, Ncols, Q_ori, T_ori, curvature_ori)
     mesh_ori.calculate_derivative()
 
     ## Analyze a grid of points sampled regularly.
@@ -61,18 +62,22 @@ def main():
     J.resize(Npoints, 2, 3)
 
     ## Measured edgel directions
-    ds_obs = fromiter((x for p in get_edgel_directions(cm, mesh_ori, data)
-                       for x in p), dtype=float, count=(Npoints * 2))
+    ds_obs = fromiter(
+        (x for p in get_edgel_directions(cm, mesh_ori, data)
+         for x in p),
+        dtype=float,
+        count=(Npoints * 2)
+    )
     ds_obs.resize(Npoints, 2)
 
     ## Create a new mesh model with "incorrect" parameters.
     Q2 = Quat(1.0, 0.02, -0.09, -0.04)
     T2 = array([-0.2, 0.0, 1.9])
-    curvature = -0.06
+    curvature2 = -0.06
     # Q2 = Quat(1.0, 0.08, -0.1, -0.1)
     # T2 = array([-0.2, 0.0, 1.9])
-    # curvature = -0.2
-    nesh = Mesh(Nrows, Ncols, Q2, T2, curvature)
+    # #curvature2 = curvature_ori
+    nesh = Mesh(Nrows, Ncols, Q2, T2, curvature2)
     nesh.calculate_derivative()
     nesh_image = cm.project(nesh.points)
 
@@ -88,9 +93,9 @@ def main():
     
     # import ipdb; ipdb.set_trace();
 
-    qq = leastsq(target_function_list, x, args=(Nrows, Ncols, ds_obs, cm, data))[0]
-    
-    
+    #qq = leastsq(target_function_list, x, args=(Nrows, Ncols, ds_obs, cm, data))[0]
+    qq = x
+
     mesh_est = Mesh(Nrows, Ncols)
     mesh_est.points[:] = qq.reshape(*mesh_est.points.shape)
     mesh_est.calculate_derivative()
@@ -98,7 +103,7 @@ def main():
     pylab.ion()
 
     fig = pylab.figure()
-    ax = pylab.subplot(1,1,1)    
+    ax = pylab.subplot(1,1,1)
     ax.set_title('Book page mesh model projection')
 
     mesh_ori.plot_2d_mesh(ax, cm, color='b', alpha=0.4, do_vertices=False)
