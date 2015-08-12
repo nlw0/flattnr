@@ -1,8 +1,8 @@
 #!/usr/bin/python
-#coding:utf-8
+# coding:utf-8
 
 import argparse
-import code 
+import code
 
 from flattnr.mesh import Mesh, CameraModel
 from flattnr.quaternion import Quat
@@ -14,8 +14,10 @@ import pylab
 
 from scipy.optimize import leastsq
 
+
 def test_label():
     pass
+
 
 def extract_edgels(cm, mesh, pq):
     for ipq in pq:
@@ -26,32 +28,33 @@ def extract_edgels(cm, mesh, pq):
 
         iJ = cm.jacobian_from_pq(ipq)
         yield {
-            "pq" : ipq,
-            "J" : iJ,
-        }    
+            "pq": ipq,
+            "J": iJ,
+        }
+
 
 def main():
-    ## Command-line argument parsing
+    # Command-line argument parsing
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--reverse', default=False, action='store_true')
 
     args = parser.parse_args()
 
-    cm_image_shape = array([750, 1000])/4
-    cm_optical_center = array([500, 375.0])/4
-    cm_focal_distance = 750.0/4
+    cm_image_shape = array([750, 1000]) / 4
+    cm_optical_center = array([500, 375.0]) / 4
+    cm_focal_distance = 750.0 / 4
     cm = CameraModel(cm_image_shape, cm_optical_center, cm_focal_distance)
 
-    ## Original parameters and model
+    # Original parameters and model
     Nrows, Ncols = 9, 7
     Q_ori = Quat(1.0, 0.08, -0.1, -0.1)
-    T_ori = array([-0.2, 0.0, 1.9])    
+    T_ori = array([-0.2, 0.0, 1.9])
     curvature_ori = 0.25
     mesh_ori = Mesh(Nrows, Ncols, Q_ori, T_ori, curvature_ori)
     mesh_ori.calculate_derivative()
 
-    ## Analyze a grid of points sampled regularly.
-    pq_ini = mgrid[35:175:10,5:195:10].T.reshape(-1,2)
+    # Analyze a grid of points sampled regularly.
+    pq_ini = mgrid[35:175:10, 5:195:10].T.reshape(-1, 2)
 
     data = list(extract_edgels(cm, mesh_ori, pq_ini))
     Npoints = len(data)
@@ -61,7 +64,7 @@ def main():
     J = fromiter((x for p in data for x in p['J'].ravel()), dtype=float, count=(Npoints * 6))
     J.resize(Npoints, 2, 3)
 
-    ## Measured edgel directions
+    # Measured edgel directions
     ds_obs = fromiter(
         (x for p in get_edgel_directions(cm, mesh_ori, data)
          for x in p),
@@ -70,13 +73,13 @@ def main():
     )
     ds_obs.resize(Npoints, 2)
 
-    ## Create a new mesh model with "incorrect" parameters.
+    # Create a new mesh model with "incorrect" parameters.
     Q2 = Quat(1.0, 0.02, -0.09, -0.04)
     T2 = array([-0.2, 0.0, 1.9])
     curvature2 = -0.06
     # Q2 = Quat(1.0, 0.08, -0.1, -0.1)
     # T2 = array([-0.2, 0.0, 1.9])
-    # #curvature2 = curvature_ori
+    # curvature2 = curvature_ori
     nesh = Mesh(Nrows, Ncols, Q2, T2, curvature2)
     nesh.calculate_derivative()
     nesh_image = cm.project(nesh.points)
@@ -90,10 +93,10 @@ def main():
     print "***"
 
     print list(target_function(x, Nrows, Ncols, ds_obs, cm, data))
-    
+
     # import ipdb; ipdb.set_trace();
 
-    #qq = leastsq(target_function_list, x, args=(Nrows, Ncols, ds_obs, cm, data))[0]
+    # qq = leastsq(target_function_list, x, args=(Nrows, Ncols, ds_obs, cm, data))[0]
     qq = x
 
     mesh_est = Mesh(Nrows, Ncols)
@@ -103,7 +106,7 @@ def main():
     pylab.ion()
 
     fig = pylab.figure()
-    ax = pylab.subplot(1,1,1)
+    ax = pylab.subplot(1, 1, 1)
     ax.set_title('Book page mesh model projection')
 
     mesh_ori.plot_2d_mesh(ax, cm, color='b', alpha=0.4, do_vertices=False)
@@ -115,26 +118,31 @@ def main():
     ds_est.resize(Npoints, 2)
 
     for ipq, ids, idr in zip(pq, ds_obs, ds_est):
-        pylab.plot([ipq[0]-5*ids[0], ipq[0]+5*ids[0]],
-                   [ipq[1]-5*ids[1], ipq[1]+5*ids[1]], 'b-', lw=2)
-        pylab.plot([ipq[0]-5*idr[0], ipq[0]+5*idr[0]],
-                   [ipq[1]-5*idr[1], ipq[1]+5*idr[1]], 'r-', lw=2)
-    pylab.plot(pq[:,0], pq[:,1], 'k.')
+        pylab.plot([ipq[0] - 5 * ids[0], ipq[0] + 5 * ids[0]],
+                   [ipq[1] - 5 * ids[1], ipq[1] + 5 * ids[1]], 'b-', lw=2)
+        pylab.plot([ipq[0] - 5 * idr[0], ipq[0] + 5 * idr[0]],
+                   [ipq[1] - 5 * idr[1], ipq[1] + 5 * idr[1]], 'r-', lw=2)
+    pylab.plot(pq[:, 0], pq[:, 1], 'k.')
 
     ax.axis('equal')
-    pylab.axis([0,cm.image_shape[1], cm.image_shape[0],0])
+    pylab.axis([0, cm.image_shape[1], cm.image_shape[0], 0])
     ax.grid()
 
-    import ipdb; ipdb.set_trace();
+    import ipdb
+
+    ipdb.set_trace()
+
 
 def target_function_value(x, Nrows, Ncols, ds_obs, cm, edgel_locations):
-    return sum(err*err for err in target_function(x, Nrows, Ncols, ds_obs, cm, edgel_locations))
+    return sum(err * err for err in target_function(x, Nrows, Ncols, ds_obs, cm, edgel_locations))
+
 
 def target_function_list(x, Nrows, Ncols, ds_obs, cm, edgel_locations):
     return [f for f in target_function(x, Nrows, Ncols, ds_obs, cm, edgel_locations)]
 
+
 def target_function(x, Nrows, Ncols, ds_obs, cm, edgel_locations):
-    ## Create a new mesh model with "incorrect" parameters.
+    # Create a new mesh model with "incorrect" parameters.
     mesh = Mesh(Nrows, Ncols)
     mesh.points[:] = x.reshape(*mesh.points.shape)
     mesh.calculate_derivative()
@@ -146,14 +154,15 @@ def target_function(x, Nrows, Ncols, ds_obs, cm, edgel_locations):
     for st in mesh.stress_terms():
         yield st - 0.2
 
+
 def get_edgel_directions(cm, mesh, edgel_locations):
     for pp in edgel_locations:
         ipq, iJ = pp['pq'], pp['J']
 
-        uv = mesh.pq_to_uv(cm, ipq)        
+        uv = mesh.pq_to_uv(cm, ipq)
 
-        ## Calculate text direction on model space. Should have
-        ## unit norm imposed by model restrictions.
+        # Calculate text direction on model space. Should have
+        # unit norm imposed by model restrictions.
         dr = mesh.uv_to_xyz_dev(uv)
 
         # Calculate text direction in image space. Normalization
@@ -162,6 +171,6 @@ def get_edgel_directions(cm, mesh, edgel_locations):
         ds = ds / norm(ds)
         yield ds
 
+
 if __name__ == '__main__':
     main()
-

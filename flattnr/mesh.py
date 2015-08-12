@@ -198,7 +198,7 @@ class Mesh(object):
         return leastsq(err, array([3.0, 4.0]), args=(cm,))[0]
 
     def uv_to_pq(self, cm, uv):
-        return cm.project(self.uv_to_xyz(uv))
+        return cm.project(array([self.uv_to_xyz(uv)]))[0]
 
     def uv_to_xyz_dev(self, uv):
         mesh_row = round(uv[1])
